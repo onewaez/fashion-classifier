@@ -116,6 +116,6 @@ Dividing the array by the floating-point literal `255.0` automatically casts the
 
 | Processing Step | Applied Code Operation | Input Shape | Output Shape | Data Type | Value Range |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **1. File Parsing** | `idx2numpy.convert_from_file()` | Binary File | `(60000, 28, 28)` | `uint8` | [0, 255] |
-| **2. Flattening** | `.reshape(60000, 784)` | `(60000, 28, 28)` | `(60000, 784)` | `uint8` | [0, 255] |
-| **3. Normalization** | `/ 255.0` | `(60000, 784)` | `(60000, 784)` | `float64` | [0.0, 1.0] |
+| **1. File Parsing** | `idx2numpy.convert_from_file()` | Binary File | `(60000, 28, 28)` | `uint8` | $[0, 255]$ |
+| **2. Flattening** | `.reshape(60000, 784)` | `(60000, 28, 28)` | `(60000, 784)` | `uint8` | $[0, 255]$ |
+| **3. Normalization** | `/ 255.0` | `(60000, 784)` | `(60000, 784)` | `float64` | $[0.0, 1.0]$ |
