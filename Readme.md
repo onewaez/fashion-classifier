@@ -47,3 +47,75 @@ NumPy providing optimized C-compiled array structures and matrix operations requ
 Pillow (PIL) enabling file operations, spatial cropping, channel conversion, and noise filtering for custom input photographs.
 
 idx2numpy facilitating direct byte parsing of the binary IDX file format native to the Fashion-MNIST dataset.
+
+# Stage 1: Data Pipeline and Preprocessing
+
+## Understanding the Dataset Architecture
+
+Machine learning models require clean, predictable data representations to perform gradient-based optimization efficiently. In this project, we utilize the **Fashion-MNIST** dataset created by Zalando Research. It serves as a modern drop-in replacement for the classical MNIST handwritten digits dataset, presenting a more complex computer vision challenge while maintaining the exact same dimensional footprint.
+
+The dataset contains 70,000 grayscale images categorized into 10 distinct garment classes, split into 60,000 training examples and 10,000 evaluation examples. On disk, the data is distributed in the binary **IDX** file format, compressed into `.ubyte` files. Specifically, `train-images-idx3-ubyte` stores the raw pixel matrices, while `train-labels-idx1-ubyte` contains the target class indices ranging from 0 to 9.
+
+## Reading Binary Files with idx2numpy
+
+The IDX file structure is a minimal binary header format designed to store multidimensional arrays efficiently. The first four bytes of an IDX file contain metadata, including magic numbers that define the data type and the number of dimensions, followed by integers that specify the size of each dimension. The remainder of the file contains a contiguous stream of raw unformatted bytes representing pixel values.
+
+To load these binary payloads directly into memory without writing custom C-extensions or relying on slow Python file-reading loops, we utilize the `idx2numpy` library.
+
+```python
+import idx2numpy
+
+X_train_raw = idx2numpy.convert_from_file('dataset/train-images-idx3-ubyte')
+y_train = idx2numpy.convert_from_file('dataset/train-labels-idx1-ubyte')
+```
+
+Under the hood, `idx2numpy` parses the binary header to extract tensor dimensions and memory strides. It then maps the raw byte buffer directly into a contiguous C-ordered `numpy.ndarray`. This provides instant memory access and eliminates performance bottlenecks during initial data ingestion.
+
+<img width="1920" height="1080" alt="Stage1PixelMatrix_ManimCE_v0 22 0" src="https://github.com/user-attachments/assets/6d95c0d0-1d7d-48a6-9ad4-af6a6c6b59c8" />
+
+
+## Analyzing Initial Tensor Dimensions
+
+Immediately after reading the files into memory, we must inspect the structure and data types of the loaded NumPy arrays to verify structural integrity.
+
+```python
+print("Raw images shape:", X_train_raw.shape)
+print("Raw labels shape:", y_train.shape)
+print("Pixel data type:", X_train_raw.dtype)
+```
+
+The image tensor `X_train_raw` yields a shape of `(60000, 28, 28)`. This represents a three-dimensional tensor containing 60,000 individual matrices, where each matrix consists of 28 rows and 28 columns of pixels. The element data type is `uint8`, which stands for an unsigned 8-bit integer. The target label array `y_train` yields a one-dimensional vector of shape `(60000,)`, where each element represents the ground-truth integer class index for the corresponding image.
+
+## Vectorization and Spatial Flattening
+
+Our custom neural network relies on fully connected dense layers (`Linear`). A dense layer calculates activations using standard matrix multiplication expressed as $Z = X \cdot W + b$. Because linear algebra operations in fully connected layers expect input features to be structured as a flat one-dimensional vector per sample, a two-dimensional `28 × 28` spatial grid cannot be processed directly without reshaping.
+
+To feed two-dimensional pixel grids into a dense layer, we must flatten the spatial dimensions into a single continuous feature array containing 784 numbers (`28 × 28 = 784`).
+
+```python
+X_train = X_train_raw.reshape(X_train_raw.shape[0], 784)
+```
+
+The `reshape` method reorganizes the memory buffer using row-major ordering, also known as C-style layout. During this operation, the first row of 28 pixels occupies array indices 0 through 27, the second row occupies indices 28 through 55, and this sequence continues sequentially until all 784 elements are appended. The shape of `X_train` transitions from `(60000, 28, 28)` to a two-dimensional matrix of shape `(60000, 784)`. Each row in this matrix now represents an individual fashion item as a flat feature vector.
+
+## Pixel Intensity Physics and Normalization
+
+In the raw `uint8` format, each pixel value is encoded using 8 bits of memory, providing $2^8 = 256$ distinct brightness levels. A value of 0 corresponds to absolute darkness, which forms the solid black background in the Fashion-MNIST dataset. A value of 255 represents maximum brightness, forming the primary highlights of the garments, while values between 1 and 254 represent intermediate grayscale tones.
+
+Passing raw unscaled values ranging from 0 to 255 directly into a neural network creates severe numerical instability. When an unscaled vector contains numbers as large as 255, the linear combination $Z = \sum (x_i \cdot w_i) + b$ produces extremely large activation values on the very first forward pass. These large values cause numerical overflow when evaluating the exponential functions within Softmax ($e^Z$). Furthermore, excessively large inputs generate massive gradient updates during backpropagation, causing optimization steps to overshoot and fail to converge.
+
+To ensure stable optimization and uniform gradient steps, we normalize the raw pixel values linearly into a floating-point range between 0.0 and 1.0.
+
+```python
+X_train = X_train_raw.reshape(X_train_raw.shape[0], 784) / 255.0
+```
+
+Dividing the array by the floating-point literal `255.0` automatically casts the underlying NumPy array from 8-bit integers (`uint8`) to double-precision floating-point numbers (`float64`). Dark background pixels with a value of 0 map precisely to `0.0`, maximum white highlights map to `1.0`, and mid-tone gray pixels scale proportionally to values such as `0.5`. This keeps all input signals within a well-behaved range, preventing numerical overflow and stabilizing weight updates.
+
+## Data Pipeline Transformation Summary
+
+| Processing Step | Applied Code Operation | Input Shape | Output Shape | Data Type | Value Range |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **1. File Parsing** | `idx2numpy.convert_from_file()` | Binary File | `(60000, 28, 28)` | `uint8` | [0, 255] |
+| **2. Flattening** | `.reshape(60000, 784)` | `(60000, 28, 28)` | `(60000, 784)` | `uint8` | [0, 255] |
+| **3. Normalization** | `/ 255.0` | `(60000, 784)` | `(60000, 784)` | `float64` | [0.0, 1.0] |
