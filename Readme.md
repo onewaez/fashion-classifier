@@ -119,3 +119,52 @@ Dividing the array by the floating-point literal `255.0` automatically casts the
 | **1. File Parsing** | `idx2numpy.convert_from_file()` | Binary File | `(60000, 28, 28)` | `uint8` | $[0, 255]$ |
 | **2. Flattening** | `.reshape(60000, 784)` | `(60000, 28, 28)` | `(60000, 784)` | `uint8` | $[0, 255]$ |
 | **3. Normalization** | `/ 255.0` | `(60000, 784)` | `(60000, 784)` | `float64` | $[0.0, 1.0]$ |
+
+## Stage 2: Network Topology & He (Kaiming) Initialization
+
+### Network Architecture and Layer Connections
+
+Our neural network uses a feedforward architecture with two fully connected layers. The network processes flattened image vectors containing 784 pixel values and predicts one of 10 fashion categories.
+
+The first transformation layer, `Linear(784, 128)`, takes the 784 input pixels and connects them to 128 hidden neurons. This hidden layer allows the network to combine individual pixel values into meaningful visual features, such as edges, outlines, and shapes. The second layer, `Linear(128, 10)`, takes those 128 hidden features and maps them to 10 output class scores, called logits. The class with the highest logit score represents the network final prediction.
+
+Inside every dense layer, input features are multiplied by a weight matrix $W$ and added to a bias vector $b$. For a mini-batch of images $X$, the linear forward pass is computed as matrix multiplication:
+
+$$Z = X \cdot W + b$$
+
+In the first layer, input matrix $X$ has a shape of `(N, 784)`, weight matrix $W$ has a shape of `(784, 128)`, and bias vector $b$ has a shape of `(128,)`. Across both layers, the network contains 101,770 total trainable parameters.
+
+<img width="1920" height="1080" alt="Stage2TopologyDiagram_ManimCE_v0 22 0" src="https://github.com/user-attachments/assets/75840ef9-4e7c-4c37-ab94-46aa6a7982e1" />
+
+
+### Why Weight Initialization Matters
+
+Before training begins, weight parameters must be initialized with starting values. Setting initial weights incorrectly prevents the neural network from learning effectively during training.
+
+Initializing all weights to zero creates a problem called symmetry. When every weight starts at zero, every neuron in the hidden layer produces the exact same calculation and receives the exact same gradient update during backpropagation. Instead of 128 unique neurons learning different visual features, all neurons behave identically, reducing the layer to a single effective unit.
+
+Randomly picking weight values without proper scaling also breaks model training. If initial weights are too large, multiplying 784 inputs by large numbers causes activation values to explode into massive numbers. This leads to unstable gradients during backpropagation. Conversely, if initial weights are too small, signals shrink toward zero as they pass through the layers, causing gradients to vanish and stopping learning entirely.
+
+### How He (Kaiming) Initialization Works
+
+To keep signals stable throughout the forward pass, weight values are scaled according to the number of incoming connections `n_inputs`. For layers followed by a ReLU activation function, we use He (Kaiming) Initialization.
+
+The ReLU activation function turns all negative numbers into zero. Because ReLU silences roughly half of all incoming values, it reduces the overall signal strength by half. To balance this drop and keep activation strength consistent across layers, the variance of the initial weights must be multiplied by two.
+
+To implement He initialization, weights are drawn from a standard normal distribution with a mean of zero and scaled by multiplying with the square root of two divided by `n_inputs`:
+
+$$W = \mathcal{N}(0, 1) \cdot \sqrt{\frac{2.0}{n_{\text{inputs}}}}$$
+
+Bias parameters do not scale input features, so initializing them as zero vectors keeps the initial calculations centered and balanced.
+
+### Code Implementation in Linear Layer
+
+In our project codebase, weight generation, scaling, and parameter setup are handled directly inside the constructor of the `Linear` class.
+
+```python
+class Linear:
+    def __init__(self, n_inputs, n_neurons):
+        # He/Kaiming initialization
+        self.weights = np.random.randn(n_inputs, n_neurons) * np.sqrt(2.0 / n_inputs)
+        self.biases = np.zeros(n_neurons)
+        self.saved_input = None
