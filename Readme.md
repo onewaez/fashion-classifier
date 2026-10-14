@@ -168,3 +168,50 @@ class Linear:
         self.weights = np.random.randn(n_inputs, n_neurons) * np.sqrt(2.0 / n_inputs)
         self.biases = np.zeros(n_neurons)
         self.saved_input = None
+```
+## Stage 3: ReLU Activation Function
+
+### The Fundamental Role of Non-Linearity
+
+A neural network composed exclusively of linear layers is mathematically limited in its expressive capacity. When multiple linear transformations are stacked sequentially, their combined operation simplifies into a single affine transformation. Multiplying a linear output $Z_1 = X \cdot W_1 + b_1$ by a second weight matrix $W_2$ produces $Z_2 = X \cdot (W_1 \cdot W_2) + (b_1 \cdot W_2 + b_2)$, which is functionally equivalent to a single linear layer with merged parameters $W_{\text{new}}$ and $b_{\text{new}}$. Without intermediate non-linear operations, a multi-layer architecture collapses into a simple linear regression model incapable of learning complex visual boundaries.
+
+To separate 10 distinct clothing categories in Fashion-MNIST, the network must fold and warp high-dimensional feature space. Non-linear activation functions introduce non-linear decision boundaries between layers, enabling hidden neurons to combine low-level visual features into complex geometric representations.
+
+### Mechanics of the Rectified Linear Unit
+
+Our architecture implements the Rectified Linear Unit (ReLU) activation function after the hidden dense layer. ReLU applies a threshold operation that replaces all negative input values with zero while allowing positive values to pass through unchanged:
+
+$$f(x) = \max(0, x)$$
+
+Compared to traditional smooth activation functions such as Sigmoid or Tanh, ReLU offers two major mathematical advantages. First, it requires negligible computational overhead, replacing costly exponential calculations with a simple threshold operation. Second, ReLU mitigates the vanishing gradient problem. Activation functions like Sigmoid saturate at extreme values, causing their derivatives to approach zero and halting parameter updates in deep layers. In contrast, the derivative of ReLU for any positive input is exactly 1.0, allowing gradient signals to pass backward without exponential decay.
+
+### Backward Pass and Gradient Masking
+
+During backpropagation, error gradients flow backward from the loss function toward earlier layers. To calculate how much a pre-activation value influenced the final loss, the chain rule requires multiplying the incoming upstream gradient by the local derivative of the activation function.
+
+The mathematical derivative of the ReLU function is step-based:
+
+$$f'(x) = \begin{cases} 1 & \text{if } x > 0, \\ 0 & \text{if } x \le 0 \end{cases}$$
+
+When an input value was positive during the forward pass ($x > 0$), ReLU acts as an open channel, passing the upstream gradient backward without modification. When an input value was zero or negative ($x \le 0$), the derivative is 0, creating a binary gradient mask that completely blocks upstream error signals from passing backward through that specific neuron.
+
+<img width="1920" height="1080" alt="Stage3ReLUDiagram_ManimCE_v0 22 0" src="https://github.com/user-attachments/assets/8f840889-fecb-4298-b743-0e67f4d655f0" />
+
+
+### Python Implementation
+
+In our codebase, the `ReLU` class manages non-linear transformations and gradient filtering. The forward pass stores a reference to the unactivated input tensor $X$, which is reused during backpropagation to generate a boolean mask for element-wise gradient multiplication.
+
+```python
+class ReLU:
+    def __init__(self):
+        self.saved_input = None
+
+    def forward(self, input_data):
+        self.saved_input = input_data
+        return np.maximum(0, input_data)
+
+    def backward(self, gradient_from_next_layer, learning_rate):
+        gradient_for_previous_layer = np.array(gradient_from_next_layer, copy=True)
+        gradient_for_previous_layer[self.saved_input <= 0] = 0
+        return gradient_for_previous_layer
